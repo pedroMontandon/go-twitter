@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"html/template"
 	"net/http"
+	"strings"
 )
 
 type apiConfig struct {
@@ -12,6 +13,18 @@ type apiConfig struct {
 
 var config = apiConfig{}
 
+var profaneWords = map[string]bool{"kerfuffle": true, "sharbert": true, "fornax": true}
+
+func cleanProfanity(sentence string) string {
+	words := strings.Split(sentence, " ")
+	for i, word := range words {
+		if profaneWords[strings.ToLower(word)] {
+			words[i] = "****"
+		}
+	}
+	return strings.Join(words, " ")
+}
+
 func validateChirpHandler(w http.ResponseWriter, r *http.Request) {
 	type validBody struct {
 		Body string `json:"body"`
@@ -19,8 +32,8 @@ func validateChirpHandler(w http.ResponseWriter, r *http.Request) {
 	type invalidBody struct {
 		Error string `json:"error"`
 	}
-	type resType struct {
-		Valid bool `json:"valid"`
+	type resBody struct {
+		CleanedBody string `json:"cleaned_body"`
 	}
 	var respBody validBody
 	err := json.NewDecoder(r.Body).Decode(&respBody)
@@ -41,7 +54,7 @@ func validateChirpHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res := resType{Valid: true}
+	res := resBody{CleanedBody: cleanProfanity(respBody.Body)}
 	response, err := json.Marshal(res)
 	if err != nil {
 		http.Error(w, "Something went wrong", http.StatusInternalServerError)
