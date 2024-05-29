@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"html/template"
 	"net/http"
 )
@@ -10,6 +11,45 @@ type apiConfig struct {
 }
 
 var config = apiConfig{}
+
+func validateChirpHandler(w http.ResponseWriter, r *http.Request) {
+	type validBody struct {
+		Body string `json:"body"`
+	}
+	type invalidBody struct {
+		Error string `json:"error"`
+	}
+	type resType struct {
+		Valid bool `json:"valid"`
+	}
+	var respBody validBody
+	err := json.NewDecoder(r.Body).Decode(&respBody)
+	if err != nil {
+		http.Error(w, "Something went wrong", http.StatusInternalServerError)
+		return
+	}
+	if len(respBody.Body) > 140 {
+		errorRes := invalidBody{Error: "Chirp is too long"}
+		errorData, err := json.Marshal(errorRes)
+		if err != nil {
+			http.Error(w, "Something went wrong", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write(errorData)
+		return
+	}
+
+	res := resType{Valid: true}
+	response, err := json.Marshal(res)
+	if err != nil {
+		http.Error(w, "Something went wrong", http.StatusInternalServerError)
+		return
+	}
+
+	w.Write(response)
+}
 
 func accessCounterMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -31,9 +71,6 @@ func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func metricsHandler(w http.ResponseWriter, r *http.Request) {
-	// w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	// w.WriteHeader(http.StatusOK)
-	// w.Write([]byte("Hits: " + strconv.Itoa(config.FileserverHits)))
 	tmpl, err := template.ParseFiles("pages/metrics.html")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -60,12 +97,12 @@ func resetMetricsHandler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /api/reset", resetMetricsHandler)
 	mux.Handle("GET /app/", accessCounterMiddleware(http.StripPrefix("/app/", http.FileServer(http.Dir("./")))))
 	mux.Handle("GET /app/assets/logo.png", accessCounterMiddleware(http.FileServer(http.Dir("./"))))
+	mux.HandleFunc("GET /api/reset", resetMetricsHandler)
+	mux.HandleFunc("POST /api/validate_chirp", validateChirpHandler)
+
 	mux.HandleFunc("GET /admin/metrics", metricsHandler)
-
 	mux.HandleFunc("GET /api/healthz", healthCheckHandler)
-
 	http.ListenAndServe(":8080", mux)
 }
